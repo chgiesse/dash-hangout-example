@@ -1,0 +1,23 @@
+services:
+  redis:
+    container_name: redis
+    image: redis:7.2.4-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    
+  
+  redis_insights:
+    container_name: redis-insights
+    image: redis/redisinsight:latest
+    ports:
+      - '5540:5540'
+
+  db:
+    image: postgres:17.4-alpine3.21
+    restart: always
+    shm_size: 128mb
+    environment:
+      - POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+    ports:
+      - '5432:5432'

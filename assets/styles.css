@@ -1,0 +1,5 @@
+.mantine-NavLink-root{
+    border-radius: var(--mantine-radius-xl)!important;
+    margin-top: auto;
+    margin-bottom: auto;
+  }

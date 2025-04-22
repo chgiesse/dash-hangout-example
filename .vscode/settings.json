@@ -1,0 +1,25 @@
+{
+    "sqltools.connections": [
+        {
+            "server": "Utopia",
+            "port": 5433,
+            "tlsmode": "disable",
+            "label": "VSCode SQLTools Vertica driver",
+            "showSystemObjects": false,
+            "previewLimit": 50,
+            "driver": "Vertica",
+            "name": "Utopia",
+            "database": "Utopia",
+            "username": "cgiessel"
+        },
+        {
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "Dash Example DB",
+            "username": "postgres",
+            "database": "postgres"
+        }
+    ]
+}
