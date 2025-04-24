@@ -15,30 +15,75 @@ class ActionBar(dmc.Stack):
         filter_button = 'amazon-filter-button'
         reset_button = 'amazon-reset-button'
 
-    update_url_csc = clientside_callback(
-        f'''
-        ( filter, select, categories, dateRange, ratings, granularity ) => {{
-            console.log(filter, select, categories, dateRange, ratings, granularity)
-            const ctx = window.dash_clientside.callback_context
-            const triggeredId = ctx.triggered_id
 
-            if ( triggeredId === '{ids.filter_button}') {{
+    # Clientside callback to update URL based on filter selections
+    update_url_csc = clientside_callback(
+        '''
+        //js
+        function (nClicks, categories, dateRange, ratings, granularity, currentUrl) {
+            if (nClicks) {
+                // Parse the current URL
+                const url = new URL(currentUrl, window.location.origin);
                 
-            }} else {{
+                // Set or update query parameters
+                if (categories && categories.length > 0) {
+                    url.searchParams.set('categories', JSON.stringify(categories));
+                } else {
+                    url.searchParams.delete('categories');
+                }
                 
-            }}
-        }}
+                if (dateRange && dateRange.length === 2) {
+                    url.searchParams.set('sale_date_range', JSON.stringify(dateRange));
+                } else {
+                    url.searchParams.delete('sale_date_range');
+                }
+                
+                if (ratings && ratings.length === 2) {
+                    url.searchParams.set('rating_range', JSON.stringify(ratings));
+                } else {
+                    url.searchParams.delete('rating_range');
+                }
+                
+                if (granularity) {
+                    url.searchParams.set('granularity', granularity);
+                } else {
+                    url.searchParams.delete('granularity');
+                }
+                
+                // Update the browser URL
+                window.dash_clientside.set_props('_pages_location', {href: url.toString()});
+            }
+            return window.dash_clientside.no_update;
+        }
+        ;//
         ''',
+        Output('_pages_location', 'href'),
         Input(ids.filter_button, 'n_clicks'),
-        Input(ids.reset_button, 'n_clicks'),
         State(ids.category_select, 'value'),
         State(ids.date_picker, 'value'),
         State(ids.rating_slider, 'value'),
         State(ids.granularity_select, 'value'),
+        State('_pages_location', 'href'),
+        prevent_initial_call=True
+    )
+    
+    # Reset button callback to clear all filters
+    reset_url_csc = clientside_callback(
+        '''
+        //js
+        function (nClicks) {
+            if (nClicks) { return '' };
+            return window.dash_clientside.no_update;
+        }
+        ;//
+        ''',
+        Output('_pages_location', 'search', allow_duplicate=True),
+        Input(ids.reset_button, 'n_clicks'),
+        prevent_initial_call=True
     )
 
     def __init__(self, filters: AmazonQueryParams):
-        
+        print('filters: ', filters, flush=True)
         cat_select = dmc.MultiSelect(
             data=[{'value': val, 'label': val.title()} for val in filters.get_categroies()],
             value=filters.categories,
@@ -77,6 +122,7 @@ class ActionBar(dmc.Stack):
         
         buttons = dmc.Group(
             grow=True,
+            justify='flex-end',
             children=[
                 dmc.Button(
                     'Reset', 

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Literal, get_args
 from datetime import date, timedelta
+import json
 
 
 sales_variant_type = Literal[
@@ -44,6 +45,17 @@ class AmazonQueryParams(BaseModel):
 
     granularity: granularity_type = Field(default='month')
 
+    @field_validator('categories', 'sale_date_range', 'rating_range', mode='before')
+    @classmethod
+    def parse_json_string(cls, value):
+        if isinstance(value, str) and value.startswith('[') and value.endswith(']'):
+            try:
+                parsed_value = json.loads(value)
+                return parsed_value
+            except json.JSONDecodeError:
+                pass
+        return value
+
     @classmethod
     def get_categroies(cls):
         cat_annotations = list(cls.__annotations__['categories'].__args__)
@@ -79,7 +91,6 @@ class AmazonQueryParams(BaseModel):
 
 class SalesCallbackParams(BaseModel):
     variant: sales_variant_type = Field(default='amount')
-
     is_relative: bool | None = None
     is_running: bool | None = None
 

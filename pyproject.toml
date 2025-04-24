@@ -7,19 +7,20 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.13"
-dash = "^3.0.3"
+dash = "3.0.1"
 pandas = "^2.2.3"
 spacy = "^3.8.5"
 matplotlib = "^3.10.1"
 sqlalchemy = "^2.0.40"
 python-dotenv = "^1.1.0"
 asyncpg = "^0.30.0"
-dash-mantine-components = "1.1.2rc1"
+dash-mantine-components = "1.0.0"
 dash-iconify = "^0.1.2"
 dash-flash = "^1.0.0"
 nbformat = "^5.10.4"
 greenlet = "^3.2.0"
 kaleido = "1.0.0rc11"
+dash-ag-grid = "^31.3.1"
 
 
 [tool.poetry.group.dev.dependencies]

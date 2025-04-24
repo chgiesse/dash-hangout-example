@@ -2,19 +2,22 @@ from global_components.notifications import NotificationsContainer
 from global_components.theme import ThemeComponent, theme_type
 from utils.helpers import parse_qs, get_theme_template
 from utils.constants import common_figure_config
-from ..api import get_category_ranks, get_total_sales
+from ..api import get_category_ranks, get_total_sales, get_avg_rating, get_total_sentiment
 from ..models import AmazonQueryParams, SalesCallbackParams, sales_variant_type
 from .graph_card import create_graph_card_wrapper
 from .switch import create_agg_switch
 from .menu import GraphMenu
 
 from pydantic import ValidationError
-from flash import callback, Input, Output, State, set_props, no_update, ctx
+from flash import callback, Input, Output, State, set_props, no_update, ctx, clientside_callback
+from dash_ag_grid import AgGrid
 import dash_mantine_components as dmc 
-import plotly.express as px
+from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+import plotly.express as px
 from dash import dcc
 import pandas as pd
+import asyncio
 
 
 class CategoryRankGraph(dmc.Box):
@@ -27,16 +30,17 @@ class CategoryRankGraph(dmc.Box):
         variant_select = 'amazon-top-category-var-select'
     
     GraphMenu.download_callback(ids.graph)
-    ThemeComponent.graph_theme_callback(ids.graph)
+    # ThemeComponent.graph_theme_callback(ids.graph)
 
     @callback(
         Output(ids.graph, 'figure'),
         Input(ids.relative_switch, 'checked'),
         Input(ids.variant_select, 'value'),
+        State(ThemeComponent.ids.toggle, 'checked'),
         State('_pages_location', 'search'),
         prevent_initial_call=True
     )
-    async def update(is_relative: bool, variant: str, qs: str):
+    async def update(is_relative: bool, variant: str, is_darkmode: bool, qs: str):
         try:
             query_params = parse_qs(qs)
             filters = AmazonQueryParams(**query_params)
@@ -54,12 +58,13 @@ class CategoryRankGraph(dmc.Box):
                 }
             )
             return no_update
-        
+        template = get_theme_template(is_darkmode)
         data = await get_category_ranks(filters=filters, sales_params=sales_params)
         if is_relative:
             data.ProductCount = data.ProductCount / data.ProductCount.sum()
         
         fig = CategoryRankGraph.figure(data, is_relative=is_relative)
+        fig.update_layout(template=template)
         return fig
 
 
@@ -136,16 +141,28 @@ class TotalSalesGraph(dmc.Box):
     title = 'Total Sales over Time'
 
     class ids:
-        graph = 'amazon-total-sales-graphs'
+        graph = 'amazon-total-sales-graph'
+        table = 'amazon-total-sales-table'
         relative_switch = 'amazon-total-sales-rel-switch'
+        table_switch = 'amazon-total-sales-tbl-switch'
         running_switch = 'amazon-total-sales-run-switch'
         variant_select =  'amazon-total-sales-var-select'
+
     
     GraphMenu.download_callback(ids.graph)
-    ThemeComponent.graph_theme_callback(ids.graph)
+    # ThemeComponent.graph_theme_callback(ids.graph)
+    clientside_callback(
+        f'''( hideTable ) => {{
+            document.querySelector('.{ids.table}').setAttribute('data-hidden', !hideTable);
+            document.querySelector('.{ids.graph}').setAttribute('data-hidden', hideTable);
+        }}''',
+        Input(ids.table_switch, 'checked'),
+        prevent_initial_call=True
+    )
 
     @callback(
         Output(ids.graph, 'figure'),
+        Output(ids.table, 'rowData'),
         Input(ids.relative_switch, 'checked'),
         Input(ids.running_switch, 'checked'),
         Input(ids.variant_select, 'value'),
@@ -189,7 +206,8 @@ class TotalSalesGraph(dmc.Box):
         
         fig = TotalSalesGraph.figure(data)
         fig.update_layout(template=template)
-        return fig
+        row_data = data.T.reset_index(names='Type').to_dict(orient='records')
+        return fig, row_data    
 
     @staticmethod
     def figure(data: pd.DataFrame):
@@ -202,16 +220,52 @@ class TotalSalesGraph(dmc.Box):
         )
         return fig
 
+    @classmethod
+    def table(cls, data: pd.DataFrame):
+        data = data.T.reset_index(names='Type')
+        columnDefs = [{'field': 'Type', 'pinned': 'left', 'width': 180, 'filter': True}]
+        columnDefs += [{'field': col, 'width': 110, 'filter': False} for col in data.columns[1:]]
+
+        table = AgGrid(
+            id=cls.ids.table,
+            rowData=data.to_dict(orient='records'),
+            columnDefs=columnDefs,
+            defaultColDef={"filter": False},
+            className='ag-theme-quartz-auto-dark card-bg',
+            dashGridOptions = {"rowHeight": 55},
+            # style={"height": "100%"}
+        )
+        return table
+
+
     def __init__(self, data: pd.DataFrame, theme: theme_type):
         fig = self.figure(data)
+        graph = dcc.Graph(
+            figure=fig, 
+            config={'displayModeBar': False},
+            id=self.ids.graph
+        )
+        table = self.table(data)
+
+        graph_container = dmc.Box(
+            children=[
+                dmc.Center(
+                    table, 
+                    className=self.ids.table, 
+                    **{'data-hidden': True}, 
+                ),
+                dmc.Box(
+                    graph, 
+                    className=self.ids.graph, 
+                    **{'data-hidden': False}
+                ),
+            ], 
+        )
+
         fig.update_layout(template=theme)
         super().__init__(
             create_graph_card_wrapper(
-                graph=dcc.Graph(
-                    figure=fig, 
-                    config={'displayModeBar': False},
-                    id=self.ids.graph
-                ),
+                graph=graph_container,
                 title=self.title,
                 menu=dmc.Group([
                     dmc.Select(
@@ -229,8 +283,118 @@ class TotalSalesGraph(dmc.Box):
                         aggregation_items=[
                             create_agg_switch(self.ids.relative_switch),
                             create_agg_switch(self.ids.running_switch, title='Running'),
-                        ]
+                        ],
+                        application_items=[create_agg_switch(self.ids.table_switch, title='Table view')]
                     )
                 ])
+            )
+        )
+
+
+class TotalSentimentGraph(dmc.Box):
+
+    title = 'Sentiment and Rating over Time'
+    class ids:
+        graph = 'amazon-total-sentiment-graph'
+        relative_switch = 'amazon-total-sentiment-rel-switch'
+
+    @callback(
+        Output(ids.graph, 'figure'),
+        Input(ids.relative_switch, 'checked'),
+        State('_pages_location', 'search'),
+        State(ThemeComponent.ids.toggle, 'checked'),
+        prevent_initial_call=True
+    )
+    async def update(is_relative: bool, qs: str, is_darkmode: bool):
+        try:
+            query_params = parse_qs(qs)
+            filters = AmazonQueryParams(**query_params)
+        
+        except ValidationError as e:
+            set_props(
+                NotificationsContainer.ids.container, 
+                {
+                    'children': dmc.Notification(
+                        title='Validation Error',
+                        message=str(e),
+                        color='red',
+                        action='show'
+                    )
+                }
+            )
+            return 
+
+        theme = get_theme_template(is_darkmode)
+        sentiment_data, rating_data = await asyncio.gather(
+            get_total_sentiment(filters=filters), 
+            get_avg_rating(filters=filters)
+        )
+        
+        if is_relative:
+            sentiment_data = sentiment_data.divide(sentiment_data.sum(axis=1), axis=0).round(3)
+
+        fig = TotalSentimentGraph.figure(sentiment_data, rating_data)
+        fig.update_layout(template=theme)
+        return fig
+
+    @staticmethod
+    def figure(sentiment_data: pd.DataFrame, rating_data: pd.DataFrame):
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Add stacked bar chart for sentiment counts
+        for sentiment in sentiment_data.columns:
+            fig.add_trace(
+                go.Bar(
+                    x=sentiment_data.index,
+                    y=sentiment_data[sentiment],
+                    name=f"{sentiment}",
+                    text=sentiment_data[sentiment],
+                    textposition='auto'
+                ),
+                secondary_y=False
+            )
+
+        # Add line chart for average ratings on secondary axis
+        fig.add_trace(
+            go.Scatter(
+                x=rating_data.index,
+                y=rating_data.AvgRating.values,
+                name="Average Rating",
+                line=dict(color='red', width=3),
+                mode='lines+markers',
+            ),
+            secondary_y=True
+        )
+
+        # Set titles and labels
+        fig.update_layout(
+            barmode='stack',
+            **common_figure_config
+        )
+
+        fig.update_yaxes(title_text="Sentiment classification", secondary_y=False)
+        fig.update_yaxes(
+            title_text="Average Rating", 
+            secondary_y=True,
+            range=[1, 5],
+        )
+        return fig 
+
+
+    def __init__(self, sentiment_data: pd.DataFrame, rating_data: pd.DataFrame, theme: theme_type):
+        fig = self.figure(sentiment_data, rating_data)
+        fig.update_layout(template=theme)
+        super().__init__(
+            create_graph_card_wrapper(
+                graph=dcc.Graph(
+                    figure=fig,
+                    id=self.ids.graph,
+                    config={'displayModeBar': False},
+                ),
+                title=self.title,
+                menu=GraphMenu(
+                    graph_id=self.ids.graph,
+                    aggregation_items=[create_agg_switch(self.ids.relative_switch)]
+                )
             )
         )

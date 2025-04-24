@@ -12,8 +12,6 @@ async def setup_db(db: AsyncSession):
     data.SaleDate = pd.to_datetime(data.SaleDate)
     await db.execute(text('CREATE SCHEMA IF NOT EXISTS "AnalyticsDM"'))
     await db.commit()
-    await db.execute(text('CREATE SCHEMA IF NOT EXISTS "AnalyticsDM"'))
-    await db.commit()
     await db.run_sync(lambda sync_session: Base.metadata.create_all(sync_session.bind))
 
     products = []

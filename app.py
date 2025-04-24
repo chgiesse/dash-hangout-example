@@ -1,5 +1,5 @@
 from global_components.appshell import create_appshell
-from global_components.theme import ThemeComponent
+from global_components.theme import ThemeComponent, apply_vizro_theme
 from api.setup import setup_db
 from flash import Flash, html, page_container, State
 
@@ -16,9 +16,11 @@ app = Flash(
     }
 )
 
+apply_vizro_theme()
+
 app.layout = create_appshell(page_container)
 
 app.server.before_serving(setup_db)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)

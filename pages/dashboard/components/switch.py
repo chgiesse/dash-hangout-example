@@ -6,7 +6,8 @@ def create_agg_switch(switch_id: str, checked: bool = False, title: str = 'Relat
         size='sm', 
         checked=checked,
         label=title,
-        m='sm',
+        mx='sm',
+        my='md',
         labelPosition='left',
         styles={'labelWrapper': {'marginRight': 'auto'}},
     )

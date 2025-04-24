@@ -1,5 +1,31 @@
+:root {
+  overscroll-behavior: none;
+  overflow-x: hidden; 
+  --nprogress-color-good: rgb(61, 67, 255);
+}
+
 .mantine-NavLink-root{
-    border-radius: var(--mantine-radius-xl)!important;
-    margin-top: auto;
-    margin-bottom: auto;
-  }
+  border-radius: var(--mantine-radius-xl)!important;
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.amazon-total-sales-table[data-hidden="true"] {
+  display: none;
+}
+
+.amazon-total-sales-graph[data-hidden="true"] {
+  display: none;
+}
+
+.ag-theme-quartz-auto-dark {
+  --ag-background-color: var(--mantine-color-body) !important;
+  --ag-header-background-color: var(--mantine-color-body) !important;
+  --ag-border-color: var(--mantine-color-body) !important;
+}
+
+.ag-theme-quartz {
+  --ag-background-color: var(--light-color-body) !important;
+  --ag-header-background-color: var(--light-color-body) !important;
+  --ag-border-color: var(--light-color-body) !important;
+}
