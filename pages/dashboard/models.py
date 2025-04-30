@@ -45,7 +45,15 @@ class AmazonQueryParams(BaseModel):
 
     granularity: granularity_type = Field(default='month')
 
-    @field_validator('categories', 'sale_date_range', 'rating_range', mode='before')
+    sentiment: List[
+        Literal[
+            'positive',
+            'neutral',
+            'negative'
+        ] | None
+    ] = [] 
+
+    @field_validator('categories', 'sale_date_range', 'rating_range', 'sentiment', mode='before')
     @classmethod
     def parse_json_string(cls, value):
         if isinstance(value, str) and value.startswith('[') and value.endswith(']'):
@@ -59,6 +67,12 @@ class AmazonQueryParams(BaseModel):
     @classmethod
     def get_categroies(cls):
         cat_annotations = list(cls.__annotations__['categories'].__args__)
+        cat_values = [val for val in get_args(cat_annotations[0])][0].__args__
+        return cat_values
+    
+    @classmethod
+    def get_sentiments(cls):
+        cat_annotations = list(cls.__annotations__['sentiment'].__args__)
         cat_values = [val for val in get_args(cat_annotations[0])][0].__args__
         return cat_values
 
@@ -94,12 +108,10 @@ class SalesCallbackParams(BaseModel):
     is_relative: bool | None = None
     is_running: bool | None = None
 
-
     @classmethod
     def get_variants(cls):
         return list(cls.__annotations__['variant'].__args__) 
     
-
     @classmethod
     def get_default_variant(cls):
         return cls.model_fields['variant'].default

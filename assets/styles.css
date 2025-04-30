@@ -2,6 +2,12 @@
   overscroll-behavior: none;
   overflow-x: hidden; 
   --nprogress-color-good: rgb(61, 67, 255);
+  --light-color-body: rgb(245, 247, 248);
+  --dark-color-body: #252525;
+}
+
+.return-button:hover {
+  cursor: pointer;
 }
 
 .mantine-NavLink-root{
@@ -28,4 +34,8 @@
   --ag-background-color: var(--light-color-body) !important;
   --ag-header-background-color: var(--light-color-body) !important;
   --ag-border-color: var(--light-color-body) !important;
+}
+
+:root[data-mantine-color-scheme="light"] {
+  --mantine-body-color: var(--light-color-body);
 }

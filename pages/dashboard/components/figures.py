@@ -1,5 +1,6 @@
 from global_components.notifications import NotificationsContainer
 from global_components.theme import ThemeComponent, theme_type
+from global_components.location import Url
 from utils.helpers import parse_qs, get_theme_template
 from utils.constants import common_figure_config
 from ..api import get_category_ranks, get_total_sales, get_avg_rating, get_total_sentiment
@@ -9,7 +10,7 @@ from .switch import create_agg_switch
 from .menu import GraphMenu
 
 from pydantic import ValidationError
-from flash import callback, Input, Output, State, set_props, no_update, ctx, clientside_callback
+from flash import callback, Input, Output, State, no_update, ctx, clientside_callback
 from dash_ag_grid import AgGrid
 import dash_mantine_components as dmc 
 from plotly.subplots import make_subplots
@@ -37,7 +38,7 @@ class CategoryRankGraph(dmc.Box):
         Input(ids.relative_switch, 'checked'),
         Input(ids.variant_select, 'value'),
         State(ThemeComponent.ids.toggle, 'checked'),
-        State('_pages_location', 'search'),
+        State(Url.ids.location, 'search'),
         prevent_initial_call=True
     )
     async def update(is_relative: bool, variant: str, is_darkmode: bool, qs: str):
@@ -45,31 +46,28 @@ class CategoryRankGraph(dmc.Box):
             query_params = parse_qs(qs)
             filters = AmazonQueryParams(**query_params)
             sales_params = SalesCallbackParams(variant=variant, is_relative=is_relative)
+
         except ValidationError as e:
-            set_props(
-                NotificationsContainer.ids.container, 
-                {
-                    'children': dmc.Notification(
-                        title='Validation Error',
-                        message=str(e),
-                        color='red',
-                        action='show'
-                    )
-                }
+            NotificationsContainer.send_notification(
+                title='Validation Error',
+                message=str(e),
+                color='red',
             )
             return no_update
-        template = get_theme_template(is_darkmode)
-        data = await get_category_ranks(filters=filters, sales_params=sales_params)
+
+        data = await get_category_ranks(filters=filters, variant=sales_params.variant)
+
         if is_relative:
             data.ProductCount = data.ProductCount / data.ProductCount.sum()
         
-        fig = CategoryRankGraph.figure(data, is_relative=is_relative)
-        fig.update_layout(template=template)
+        fig = CategoryRankGraph.figure(data, is_relative=is_relative, is_darkmode=is_darkmode)
+
         return fig
 
 
     @staticmethod
-    def figure(data: pd.DataFrame, is_relative: bool = False):
+    def figure(data: pd.DataFrame, is_relative: bool = False, is_darkmode: bool = False):
+        template = get_theme_template(is_darkmode)
 
         if is_relative:
             common_props = dict(
@@ -87,7 +85,9 @@ class CategoryRankGraph(dmc.Box):
                 textposition="outside",
             )
             fig = go.Figure([fig2, fig1])
-            fig.update_layout(margin=dict(l=100, r=80, t=40, b=40))
+            fig.update_layout(
+                margin=dict(l=100, r=80, t=40, b=40),
+            )
         
         else:
             fig = px.bar(
@@ -101,13 +101,13 @@ class CategoryRankGraph(dmc.Box):
             
             fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
 
-        fig.update_layout(**common_figure_config, showlegend=False)
+        fig.update_layout(**common_figure_config, showlegend=False, template=template)
         return fig
 
 
-    def __init__(self, data: pd.DataFrame, theme: theme_type):
-        fig = self.figure(data)
-        fig.update_layout(template=theme)
+    def __init__(self, data: pd.DataFrame, is_darkmode: bool):
+        fig = self.figure(data, is_darkmode=is_darkmode)
+
         super().__init__(
             create_graph_card_wrapper(
                 graph=dcc.Graph(
@@ -157,7 +157,6 @@ class TotalSalesGraph(dmc.Box):
             document.querySelector('.{ids.graph}').setAttribute('data-hidden', hideTable);
         }}''',
         Input(ids.table_switch, 'checked'),
-        prevent_initial_call=True
     )
 
     @callback(
@@ -166,11 +165,11 @@ class TotalSalesGraph(dmc.Box):
         Input(ids.relative_switch, 'checked'),
         Input(ids.running_switch, 'checked'),
         Input(ids.variant_select, 'value'),
-        State('_pages_location', 'search'),
+        State(Url.ids.location, 'search'),
         State(ThemeComponent.ids.toggle, 'checked'),
         prevent_initial_call=True
     )
-    async def update(is_relative: bool, is_running: bool, variant: sales_variant_type, qs: str, is_dark: bool):
+    async def update(is_relative: bool, is_running: bool, variant: sales_variant_type, qs: str, is_darkmode: bool):
         try:
             query_params = parse_qs(qs)
             filters = AmazonQueryParams(**query_params)
@@ -181,22 +180,15 @@ class TotalSalesGraph(dmc.Box):
             )
         
         except ValidationError as e:
-            set_props(
-                NotificationsContainer.ids.container, 
-                {
-                    'children': dmc.Notification(
-                        title='Validation Error',
-                        message=str(e),
-                        color='red',
-                        action='show'
-                    )
-                }
+            NotificationsContainer.send_notification(
+                title='Validation Error',
+                message=str(e),
+                color='red',
             )
             return no_update
         
         triggered_id = ctx.triggered_id
-        template = get_theme_template(is_dark)
-        data = await get_total_sales(filters=filters, sales_params=sales_params)
+        data = await get_total_sales(filters=filters, variant=sales_params.variant)
 
         if is_relative and triggered_id == TotalSalesGraph.ids.relative_switch:
             data = data.divide(data.sum(axis=1), axis=0).round(3).fillna(0)
@@ -204,26 +196,28 @@ class TotalSalesGraph(dmc.Box):
         if is_running and triggered_id == TotalSalesGraph.ids.running_switch:
             data = data.cumsum()
         
-        fig = TotalSalesGraph.figure(data)
-        fig.update_layout(template=template)
-        row_data = data.T.reset_index(names='Type').to_dict(orient='records')
+        fig = TotalSalesGraph.figure(data, is_darkmode)
+        row_data = data.T.reset_index(names='Category').to_dict(orient='records')
+
         return fig, row_data    
 
     @staticmethod
-    def figure(data: pd.DataFrame):
+    def figure(data: pd.DataFrame, is_darkmode: bool):
         fig = px.bar(data, text_auto=True)
+        template = get_theme_template(is_darkmode)
         fig.update_layout(
             **common_figure_config, 
             margin=dict(l=0, r=0, t=0, b=0),
             uirevision=True,
+            template=template
 
         )
         return fig
 
     @classmethod
     def table(cls, data: pd.DataFrame):
-        data = data.T.reset_index(names='Type')
-        columnDefs = [{'field': 'Type', 'pinned': 'left', 'width': 180, 'filter': True}]
+        data = data.T.reset_index(names='Category')
+        columnDefs = [{'field': 'Category', 'pinned': 'left', 'width': 180, 'filter': True}]
         columnDefs += [{'field': col, 'width': 110, 'filter': False} for col in data.columns[1:]]
 
         table = AgGrid(
@@ -233,13 +227,12 @@ class TotalSalesGraph(dmc.Box):
             defaultColDef={"filter": False},
             className='ag-theme-quartz-auto-dark card-bg',
             dashGridOptions = {"rowHeight": 55},
-            # style={"height": "100%"}
         )
         return table
 
 
-    def __init__(self, data: pd.DataFrame, theme: theme_type):
-        fig = self.figure(data)
+    def __init__(self, data: pd.DataFrame, is_darkmode: bool):
+        fig = self.figure(data, is_darkmode)
         graph = dcc.Graph(
             figure=fig, 
             config={'displayModeBar': False},
@@ -262,7 +255,6 @@ class TotalSalesGraph(dmc.Box):
             ], 
         )
 
-        fig.update_layout(template=theme)
         super().__init__(
             create_graph_card_wrapper(
                 graph=graph_container,
@@ -301,7 +293,7 @@ class TotalSentimentGraph(dmc.Box):
     @callback(
         Output(ids.graph, 'figure'),
         Input(ids.relative_switch, 'checked'),
-        State('_pages_location', 'search'),
+        State(Url.ids.location, 'search'),
         State(ThemeComponent.ids.toggle, 'checked'),
         prevent_initial_call=True
     )
@@ -311,20 +303,13 @@ class TotalSentimentGraph(dmc.Box):
             filters = AmazonQueryParams(**query_params)
         
         except ValidationError as e:
-            set_props(
-                NotificationsContainer.ids.container, 
-                {
-                    'children': dmc.Notification(
-                        title='Validation Error',
-                        message=str(e),
-                        color='red',
-                        action='show'
-                    )
-                }
+            NotificationsContainer.send_notification(
+                title='Validation Error',
+                message=str(e),
+                color='red',
             )
             return 
 
-        theme = get_theme_template(is_darkmode)
         sentiment_data, rating_data = await asyncio.gather(
             get_total_sentiment(filters=filters), 
             get_avg_rating(filters=filters)
@@ -333,15 +318,14 @@ class TotalSentimentGraph(dmc.Box):
         if is_relative:
             sentiment_data = sentiment_data.divide(sentiment_data.sum(axis=1), axis=0).round(3)
 
-        fig = TotalSentimentGraph.figure(sentiment_data, rating_data)
-        fig.update_layout(template=theme)
+        fig = TotalSentimentGraph.figure(sentiment_data, rating_data, is_darkmode)
         return fig
 
     @staticmethod
-    def figure(sentiment_data: pd.DataFrame, rating_data: pd.DataFrame):
+    def figure(sentiment_data: pd.DataFrame, rating_data: pd.DataFrame, is_darkmode: bool = False):
         fig = make_subplots(specs=[[{"secondary_y": True}]])
+        template = get_theme_template(is_darkmode)
 
-        # Add stacked bar chart for sentiment counts
         for sentiment in sentiment_data.columns:
             fig.add_trace(
                 go.Bar(
@@ -354,7 +338,6 @@ class TotalSentimentGraph(dmc.Box):
                 secondary_y=False
             )
 
-        # Add line chart for average ratings on secondary axis
         fig.add_trace(
             go.Scatter(
                 x=rating_data.index,
@@ -366,9 +349,9 @@ class TotalSentimentGraph(dmc.Box):
             secondary_y=True
         )
 
-        # Set titles and labels
         fig.update_layout(
             barmode='stack',
+            template=template,
             **common_figure_config
         )
 
@@ -381,9 +364,8 @@ class TotalSentimentGraph(dmc.Box):
         return fig 
 
 
-    def __init__(self, sentiment_data: pd.DataFrame, rating_data: pd.DataFrame, theme: theme_type):
-        fig = self.figure(sentiment_data, rating_data)
-        fig.update_layout(template=theme)
+    def __init__(self, sentiment_data: pd.DataFrame, rating_data: pd.DataFrame, is_darkmode: bool):
+        fig = self.figure(sentiment_data, rating_data, is_darkmode)
         super().__init__(
             create_graph_card_wrapper(
                 graph=dcc.Graph(

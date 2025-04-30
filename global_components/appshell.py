@@ -1,6 +1,7 @@
 from utils.helpers import get_icon, create_navlink
 from .theme import ThemeComponent
 from .notifications import NotificationsContainer
+from .location import Url
 
 import dash_mantine_components as dmc
 from dash.development.base_component import Component
@@ -16,6 +17,7 @@ def create_appshell(content: Component):
             children=[
                 dmc.AppShellMain(content),
                 NotificationsContainer(),
+                Url(),
                 dmc.AppShellHeader(
                     display='flex',
                     style={'alignItems': 'center'},
@@ -37,11 +39,11 @@ def create_appshell(content: Component):
                             active='exact'
                         ),
                         dmc.NavLink(
-                            href="/ops-tasks",
+                            href="/events",
                             leftSection=get_icon('majesticons:file-line'),
-                            label='Ops Tasks',
+                            label='Events',
                             w='8rem',
-                            active='exact'
+                            active='partial'
                         ),
                         dmc.Box(
                             ml='auto',

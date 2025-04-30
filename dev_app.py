@@ -16,9 +16,12 @@ app = Flash(
         'theme': State(ThemeComponent.ids.toggle, 'checked'),
     }
 )
-app.layout = create_appshell(page_container)
-
-server = app.server
-server.before_serving(setup_db)
 
 apply_vizro_theme()
+
+app.layout = create_appshell(page_container)
+
+app.server.before_serving(setup_db)
+
+if __name__ == '__main__':
+    app.run(debug=True)

@@ -1,3 +1,4 @@
+from global_components.location import Url
 from ..models import AmazonQueryParams
 from utils.helpers import get_icon
 
@@ -12,6 +13,7 @@ class ActionBar(dmc.Stack):
         date_picker = 'amazon-date-picker'
         rating_slider = 'amazon-rating-slider'
         granularity_select = 'amazon-granularity-select'
+        sentiment_select = 'amazon-sentiment-select'
         filter_button = 'amazon-filter-button'
         reset_button = 'amazon-reset-button'
 
@@ -20,54 +22,41 @@ class ActionBar(dmc.Stack):
     update_url_csc = clientside_callback(
         '''
         //js
-        function (nClicks, categories, dateRange, ratings, granularity, currentUrl) {
-            if (nClicks) {
-                // Parse the current URL
-                const url = new URL(currentUrl, window.location.origin);
-                
-                // Set or update query parameters
-                if (categories && categories.length > 0) {
-                    url.searchParams.set('categories', JSON.stringify(categories));
+        function updateUrlParameters(nClicks, categories, dateRange, ratings, granularity, sentiment, currentUrl) {
+            // Only proceed if the function was triggered by a click
+            if (!nClicks) return window.dash_clientside.no_update;
+            
+            const url = new URL(currentUrl, window.location.origin);
+            const parameterMap = [
+                { param: 'categories', value: categories, condition: categories?.length > 0, jsonify: true },
+                { param: 'sale_date_range', value: dateRange, condition: dateRange?.length === 2, jsonify: true },
+                { param: 'rating_range', value: ratings, condition: ratings?.length === 2, jsonify: true },
+                { param: 'sentiment', value: sentiment, condition: sentiment, jsonify: true },
+                { param: 'granularity', value: granularity, condition: granularity, jsonify: false }
+            ];
+            
+            parameterMap.forEach(({ param, value, condition, jsonify }) => {
+                if (condition) {
+                url.searchParams.set(param, jsonify ? JSON.stringify(value) : value);
                 } else {
-                    url.searchParams.delete('categories');
+                url.searchParams.delete(param);
                 }
-                
-                if (dateRange && dateRange.length === 2) {
-                    url.searchParams.set('sale_date_range', JSON.stringify(dateRange));
-                } else {
-                    url.searchParams.delete('sale_date_range');
-                }
-                
-                if (ratings && ratings.length === 2) {
-                    url.searchParams.set('rating_range', JSON.stringify(ratings));
-                } else {
-                    url.searchParams.delete('rating_range');
-                }
-                
-                if (granularity) {
-                    url.searchParams.set('granularity', granularity);
-                } else {
-                    url.searchParams.delete('granularity');
-                }
-                
-                // Update the browser URL
-                window.dash_clientside.set_props('_pages_location', {href: url.toString()});
+            });
+            
+            window.dash_clientside.set_props('_pages_location', { href: url.toString() });
             }
-            return window.dash_clientside.no_update;
-        }
         ;//
         ''',
-        Output('_pages_location', 'href'),
         Input(ids.filter_button, 'n_clicks'),
         State(ids.category_select, 'value'),
         State(ids.date_picker, 'value'),
         State(ids.rating_slider, 'value'),
         State(ids.granularity_select, 'value'),
+        State(ids.sentiment_select, 'value'),
         State('_pages_location', 'href'),
         prevent_initial_call=True
     )
     
-    # Reset button callback to clear all filters
     reset_url_csc = clientside_callback(
         '''
         //js
@@ -83,7 +72,7 @@ class ActionBar(dmc.Stack):
     )
 
     def __init__(self, filters: AmazonQueryParams):
-        print('filters: ', filters, flush=True)
+
         cat_select = dmc.MultiSelect(
             data=[{'value': val, 'label': val.title()} for val in filters.get_categroies()],
             value=filters.categories,
@@ -103,21 +92,35 @@ class ActionBar(dmc.Stack):
         minr, maxr = filters.get_rating_range()
         rating_slider = dmc.InputWrapper(
             label='Select Rating Range',
-            children=dmc.Slider(
+            children=dmc.RangeSlider(
                 value=filters.rating_range,
-                marks=[{'value': val, 'label': str(val)} for val in range(int(minr) + 1, int(maxr) + 1)],
-                miw=200,
-                min=minr,
+                step=.1,
+                minRange=minr,
                 max=maxr,
                 id=self.ids.rating_slider,
             )
         )
 
         gran_radio_group = dmc.RadioGroup(
-            children=dmc.Stack([dmc.Radio(val.title(), value=val) for val in filters.get_granularities()]),
+            children=dmc.Stack(
+                [dmc.Radio(val.title(), value=val) for val in filters.get_granularities()]
+            ),
             label='Select Granularity',
             value=filters.granularity,
             id=self.ids.granularity_select,
+        )
+
+        sentiment_radio_group = dmc.InputWrapper(
+            label='Select Sentiment',
+            children=dmc.Group(
+                justify="flex-start",
+                children=dmc.ChipGroup(
+                    [dmc.Chip(val.title(), value=val) for val in filters.get_sentiments()],
+                    multiple=True,
+                    value=filters.sentiment,
+                    id=self.ids.sentiment_select,
+                )
+            )
         )
         
         buttons = dmc.Group(
@@ -143,10 +146,12 @@ class ActionBar(dmc.Stack):
 
         super().__init__(
             m='md',
+            gap='lg',
             children=[
                 cat_select,
                 sale_date_picker,
                 rating_slider,
+                sentiment_radio_group,
                 gran_radio_group,
                 buttons
             ],

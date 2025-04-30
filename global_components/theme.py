@@ -76,6 +76,15 @@ class ThemeComponent(dmc.Switch):
             figure = Patch()
             figure.layout.template = template
             return figure
+        
+    @classmethod
+    def echarts_theme_callback(cls, graph_id: str):
+        return clientside_callback(
+            '''( isDarkmode ) => { return isDarkmode ? 'dark' : 'light' }''',
+            Output(graph_id, 'theme'),
+            Input(cls.ids.toggle, 'checked'),
+            prevent_initial_call=True
+        )
 
 
     theme = {
@@ -103,7 +112,6 @@ class ThemeComponent(dmc.Switch):
                 id='temp1'
             ),
             id=self.ids.toggle,
-            persistence=True,
             color="grey",
             checked=True
         )

@@ -1,13 +1,17 @@
-from api.config.database import db_operator
+from api.sql_operator import db_operator
 from api.models.amazon import AmazonProduct
-from .models import AmazonQueryParams, SalesCallbackParams, sales_variant_type, granularity_type
+from api.redis_cache import redis_lru_cache
+from .models import AmazonQueryParams, sales_variant_type, granularity_type
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, literal, String
+from sqlalchemy import select, func, desc
 from sqlalchemy.orm import Query
 import pandas as pd
 import asyncio
 
+
+NAMESPACE = 'example-dashboard'
+TTL = 60 * 5
 
 def apply_amazon_filters(query: Query, filters: AmazonQueryParams):
     if len(filters.categories) > 0:
@@ -18,6 +22,9 @@ def apply_amazon_filters(query: Query, filters: AmazonQueryParams):
     
     if rating := filters.rating_range:
         query = query.filter(AmazonProduct.Rating.between(cleft=rating[0], cright=rating[1]))
+
+    if filters.sentiment:
+        query = query.filter(AmazonProduct.ReviewSentiment.in_(filters.sentiment))
 
     return query
 
@@ -34,9 +41,8 @@ def get_agg_variant_column(agg_variant: sales_variant_type):
     
 
 def get_date_granularity_column(granularity: granularity_type, date_column):
-
-    if granularity == 'day':
-        return func.to_char(date_column, 'YYYY-MM-DD'), 'date'
+    if granularity == 'quarter':
+        return func.to_char(date_column, 'YYYY-"Q"Q'), 'quarter'
     elif granularity == 'month':
         return func.to_char(date_column, 'YYYY-MM'), 'month'
     elif granularity == 'year':
@@ -46,8 +52,10 @@ def get_date_granularity_column(granularity: granularity_type, date_column):
 
 
 @db_operator(timeout=.5, max_retries=3, verbose=True)
-async def get_category_ranks(db: AsyncSession, filters: AmazonQueryParams, sales_params: SalesCallbackParams):
-    agg_col = get_agg_variant_column(sales_params.variant)
+@redis_lru_cache.cache(namespace=NAMESPACE, ttl=TTL)
+async def get_category_ranks(db: AsyncSession, filters: AmazonQueryParams, variant: sales_variant_type):
+    await asyncio.sleep(.6)
+    agg_col = get_agg_variant_column(variant)
     query = select(
         AmazonProduct.MainCategory
         , agg_col.label('ProductCount')
@@ -61,8 +69,10 @@ async def get_category_ranks(db: AsyncSession, filters: AmazonQueryParams, sales
 
 
 @db_operator(verbose=True)
-async def get_total_sales(db: AsyncSession, filters: AmazonQueryParams, sales_params: SalesCallbackParams):
-    agg_col = get_agg_variant_column(sales_params.variant)
+@redis_lru_cache.cache(namespace=NAMESPACE, ttl=TTL)
+async def get_total_sales(db: AsyncSession, filters: AmazonQueryParams, variant: sales_variant_type):
+    await asyncio.sleep(.6)
+    agg_col = get_agg_variant_column(variant)
     date_col, _ = get_date_granularity_column(filters.granularity, AmazonProduct.SaleDate)
     query = select(
         AmazonProduct.MainCategory
@@ -76,17 +86,34 @@ async def get_total_sales(db: AsyncSession, filters: AmazonQueryParams, sales_pa
     result = await db.execute(query)
     data = pd.DataFrame(result)
     data = data.pivot(index='Date', columns='MainCategory', values='ProductCount')
-    data.fillna(0)
+    data = data.fillna(0)
     return data
 
 @db_operator(verbose=True)
+@redis_lru_cache.cache(namespace=NAMESPACE, ttl=TTL)
+async def get_product_metrics(db: AsyncSession, filters: AmazonQueryParams):
+    query = select(
+        AmazonProduct.MainCategory
+        , func.count(AmazonProduct.ProductId).label('ProductCount')
+        , func.sum(AmazonProduct.ActualPrice).label('TotalPrice')
+        , func.avg(AmazonProduct.DiscountPercentage).label('AvgDiscount')
+    )
+    query = apply_amazon_filters(query, filters)
+    query = query.group_by(AmazonProduct.MainCategory)
+    result = await db.execute(query)
+    data = pd.DataFrame(result)
+    return data
+
+@db_operator(verbose=True)
+@redis_lru_cache.cache(namespace=NAMESPACE, ttl=TTL)
 async def get_total_sentiment(db: AsyncSession, filters: AmazonQueryParams):
+    await asyncio.sleep(.6)
     date_col, _ = get_date_granularity_column(filters.granularity, AmazonProduct.SaleDate)
     query = select(
-            date_col.label('Date')
-            , AmazonProduct.ReviewSentiment
-            , func.count(AmazonProduct.ProductId).label('ProductCount')
-        )
+        date_col.label('Date')
+        , AmazonProduct.ReviewSentiment
+        , func.count(AmazonProduct.ProductId).label('ProductCount')
+    )
     
     query = apply_amazon_filters(query, filters)
     query = query.group_by(date_col, AmazonProduct.ReviewSentiment)
@@ -99,7 +126,9 @@ async def get_total_sentiment(db: AsyncSession, filters: AmazonQueryParams):
 
 
 @db_operator(verbose=True)
+@redis_lru_cache.cache(namespace=NAMESPACE, ttl=TTL)
 async def get_avg_rating(db: AsyncSession, filters: AmazonQueryParams):
+    await asyncio.sleep(.6)
     date_col, _ = get_date_granularity_column(filters.granularity, AmazonProduct.SaleDate)
     query = select(
         date_col.label('Date')
@@ -110,7 +139,6 @@ async def get_avg_rating(db: AsyncSession, filters: AmazonQueryParams):
     query = query.group_by(date_col)
     result = await db.execute(query)
     data = pd.DataFrame(result)
-    print('DAta: ', query, flush=True)
     data.set_index('Date', inplace=True)
     data.sort_index(ascending=True, inplace=True)
     return data
